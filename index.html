@@ -46,15 +46,21 @@
   }
   header.topbar{
     grid-area:header;
+    position:relative;
     display:flex;align-items:center;justify-content:space-between;
     padding:0 20px;
     border-bottom:1px solid var(--border);
     background:var(--panel);
     gap:16px;
   }
+  header.topbar::after{
+    content:"";position:absolute;left:0;bottom:-1px;height:2px;width:100%;
+    background:linear-gradient(90deg, var(--accent-dyn,var(--accent)) 0%, rgba(0,0,0,0) 55%);
+    opacity:.85;
+  }
   .brandmark{display:flex;align-items:baseline;gap:10px;}
   .brandmark .logo{font-family:'Space Grotesk';font-weight:700;font-size:20px;letter-spacing:.2px;}
-  .brandmark .logo em{font-style:normal;color:var(--accent);}
+  .brandmark .logo em{font-style:normal;color:var(--accent-dyn,var(--accent));}
   .brandmark .tag{font-size:12.5px;color:var(--text-dim);}
   .topbar-actions{display:flex;gap:10px;align-items:center;}
 
@@ -71,8 +77,8 @@
   }
   .btn:hover{border-color:#3A4150;}
   .btn:active{transform:translateY(1px);}
-  .btn.primary{background:var(--accent);border-color:var(--accent);color:#0A0C0E;}
-  .btn.primary:hover{filter:brightness(1.06);}
+  .btn.primary{background:var(--accent-dyn,var(--accent));border-color:var(--accent-dyn,var(--accent));color:#0A0C0E;}
+  .btn.primary:hover{filter:brightness(1.08);box-shadow:0 8px 22px -8px var(--accent-dyn,var(--accent));}
   .btn.ghost{background:transparent;}
   .btn.small{padding:6px 10px;font-size:12.5px;border-radius:7px;}
   .btn.icon{padding:6px 8px;}
@@ -112,7 +118,10 @@
     background:var(--panel-2);border:1px solid var(--border);border-radius:10px;
     padding:8px;margin-bottom:8px;cursor:pointer;
   }
-  .page-card.active{border-color:var(--accent);}
+  .page-card.active{border-color:var(--accent-dyn,var(--accent));box-shadow:0 0 0 1px var(--accent-dyn,var(--accent)) inset;}
+  .page-card{transition:border-color .15s ease;}
+  .page-thumb{transition:transform .15s ease;}
+  .page-card:hover .page-thumb{transform:scale(1.04);}
   .page-thumb{
     width:56px;height:34px;border-radius:6px;background-size:cover;background-position:center;
     background-color:#12141A;flex-shrink:0;border:1px solid var(--border);
@@ -141,6 +150,11 @@
     border:1px solid var(--border);border-radius:14px;overflow:hidden;
     box-shadow:0 20px 60px -20px rgba(0,0,0,.6);
     cursor:crosshair;
+    transition:border-color .2s ease, box-shadow .2s ease;
+  }
+  .stage-frame:not(.empty):hover{
+    border-color:var(--accent-dyn,var(--accent));
+    box-shadow:0 20px 60px -20px rgba(0,0,0,.6), 0 0 0 1px var(--accent-dyn,var(--accent));
   }
   .stage-frame.empty{cursor:default;display:flex;align-items:center;justify-content:center;}
   .empty-state{text-align:center;color:var(--text-dim);padding:20px;max-width:360px;}
@@ -197,7 +211,7 @@
   #recCanvas{width:min(90vw,1400px);height:auto;aspect-ratio:16/9;border-radius:10px;box-shadow:0 30px 80px -20px rgba(0,0,0,.7);background:#0F1115;}
   .overlay-controls{width:min(90vw,1400px);display:flex;flex-direction:column;gap:10px;}
   .progress-track{width:100%;height:6px;background:#262B35;border-radius:4px;overflow:hidden;}
-  .progress-fill{height:100%;width:0%;background:var(--accent);transition:width .05s linear;}
+  .progress-fill{height:100%;width:0%;background:var(--accent-dyn,var(--accent));transition:width .05s linear;}
   .overlay-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
   .overlay-status{font-size:12.5px;color:var(--text-dim);}
   .overlay-buttons{display:flex;gap:10px;}
@@ -228,6 +242,7 @@
       <span class="tag">Screenshots in, narrated walkthrough video out</span>
     </div>
     <div class="topbar-actions">
+      <button class="btn ghost icon" id="muteBtn" title="Mute sound effects" aria-label="Mute sound effects">🔊</button>
       <button class="btn ghost" id="previewBtn">▶ Preview</button>
       <button class="btn primary" id="generateBtn">⬇ Generate 1080p Video</button>
     </div>
@@ -283,6 +298,7 @@
       <span>Estimated video length</span>
       <b id="estimateText">0:00</b>
     </div>
+    <p style="padding:0 16px 14px;margin:0;font-size:11px;color:var(--text-faint,var(--text-dim));line-height:1.4;">Sound effects by Mixkit — free, no attribution required.</p>
   </aside>
 
 </div>
@@ -314,6 +330,15 @@
   const POPUP_WIDTH = 620, POPUP_PAD = 28, POPUP_INNER_WIDTH = POPUP_WIDTH - POPUP_PAD*2;
   const STORAGE_KEY = "pageflow_project_v1";
 
+  // Free, no-attribution-required sound effects (Mixkit Sound Effects Free License)
+  // https://mixkit.co/license/#sfxFree
+  const SOUND_URLS = {
+    transition: "https://assets.mixkit.co/active_storage/sfx/2605/2605-preview.mp3", // Quick air woosh — page enters
+    pop:        "https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3", // Message pop alert — marker appears
+    confirm:    "https://assets.mixkit.co/active_storage/sfx/2867/2867-preview.mp3", // Confirmation tone — marker text finishes typing
+    outro:      "https://assets.mixkit.co/active_storage/sfx/3108/3108-preview.mp3"  // Crystal chime — end card
+  };
+
   // ---------- state ----------
   const state = {
     brand: { title: "My Website", url: "", color: "#45D6C0" },
@@ -329,7 +354,7 @@
   const pagesListEl = $("pagesList"), stageFrame = $("stageFrame"), stageEmptyState = $("stageEmptyState");
   const pageDetailsEl = $("pageDetails"), noPageMsg = $("noPageMsg"), estimateText = $("estimateText");
   const fileInput = $("fileInput"), addPageBtn = $("addPageBtn"), clearProjectBtn = $("clearProjectBtn");
-  const previewBtn = $("previewBtn"), generateBtn = $("generateBtn");
+  const previewBtn = $("previewBtn"), generateBtn = $("generateBtn"), muteBtn = $("muteBtn");
   const overlay = $("overlay"), recCanvas = $("recCanvas"), ctx = recCanvas.getContext("2d");
   const progressFill = $("progressFill"), overlayStatus = $("overlayStatus");
   const downloadLink = $("downloadLink"), stopBtn = $("stopBtn");
@@ -665,6 +690,8 @@
           pin._typeEnd = pin._appearEnd + typeDur;
           pin._holdEnd = pin._typeEnd + HOLD_AFTER_TYPE;
           pin._slotEnd = pin._holdEnd + PIN_TRANSITION;
+          pin._poppedSound = false;
+          pin._confirmedSound = false;
           pinCursor = pin._slotEnd;
         });
         page._duration = pinCursor + PAGE_END_HOLD + PAGE_EXIT;
@@ -811,6 +838,8 @@
 
     page.pins.forEach((pin, i) => {
       if (localT < pin._slotStart) return;
+      if (!pin._poppedSound){ playSound("pop", 0.42); pin._poppedSound = true; }
+      if (localT >= pin._typeEnd && !pin._confirmedSound){ playSound("confirm", 0.32); pin._confirmedSound = true; }
       const isActive = localT < pin._slotEnd;
       drawPinDot(pin, i+1, localT, isActive);
       if (isActive) drawPopup(pin, i+1, localT);
@@ -838,14 +867,21 @@
     ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
   }
 
+  let lastDrawnPageId = null, playedEndCardSound = false;
+
   function drawFrame(t){
     ctx.clearRect(0,0,CW,CH);
     ctx.fillStyle = "#0F1115"; ctx.fillRect(0,0,CW,CH);
-    if (t >= state.totalPagesDuration){ drawEndCard(t - state.totalPagesDuration); return; }
+    if (t >= state.totalPagesDuration){
+      if (!playedEndCardSound){ playSound("outro", 0.55); playedEndCardSound = true; }
+      drawEndCard(t - state.totalPagesDuration);
+      return;
+    }
     let page = state.pages[0], localT = t;
     for (const p of state.pages){
       if (t < p._pageStart + p._duration){ page = p; localT = t - p._pageStart; break; }
     }
+    if (page.id !== lastDrawnPageId){ lastDrawnPageId = page.id; playSound("transition", 0.5); }
     drawPage(page, localT);
   }
 
@@ -857,6 +893,52 @@
     generateBtn.disabled = true;
     generateBtn.title = "Video export needs a Chromium browser (Chrome/Edge) or Firefox.";
   }
+
+  // ---------- audio engine (Mixkit sound effects) ----------
+  let audioCtx = null, audioDest = null, muted = false;
+  const soundBuffers = {};
+
+  async function initAudio(){
+    if (audioCtx){
+      if (audioCtx.state === "suspended"){ try{ await audioCtx.resume(); } catch(e){ /* ignore */ } }
+      return;
+    }
+    try{
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      audioDest = audioCtx.createMediaStreamDestination();
+    } catch(e){ audioCtx = null; return; }
+    await Promise.all(Object.keys(SOUND_URLS).map(async key => {
+      try{
+        const res = await fetch(SOUND_URLS[key]);
+        const arr = await res.arrayBuffer();
+        soundBuffers[key] = await audioCtx.decodeAudioData(arr);
+      } catch(e){
+        console.warn("Sound effect unavailable, continuing without it:", key, e);
+        soundBuffers[key] = null;
+      }
+    }));
+  }
+
+  function playSound(key, volume){
+    if (muted || !audioCtx || !soundBuffers[key]) return;
+    try{
+      const src = audioCtx.createBufferSource();
+      src.buffer = soundBuffers[key];
+      const gain = audioCtx.createGain();
+      gain.gain.value = volume;
+      src.connect(gain);
+      gain.connect(audioCtx.destination);
+      if (audioDest) gain.connect(audioDest);
+      src.start();
+    } catch(e){ /* best-effort */ }
+  }
+
+  muteBtn.addEventListener("click", () => {
+    muted = !muted;
+    muteBtn.textContent = muted ? "🔇" : "🔊";
+    muteBtn.title = muted ? "Unmute sound effects" : "Mute sound effects";
+    muteBtn.setAttribute("aria-label", muteBtn.title);
+  });
 
   async function ensureFonts(){
     try{
@@ -876,8 +958,10 @@
 
   async function openPlayback(record){
     if (!state.pages.length){ alert("Add at least one page (screenshot) first."); return; }
-    await ensureFonts();
+    await Promise.all([ensureFonts(), initAudio()]);
     buildTimeline();
+    lastDrawnPageId = null;
+    playedEndCardSound = false;
     overlay.classList.add("open");
     downloadLink.hidden = true; downloadLink.removeAttribute("href");
     stopBtn.textContent = "Stop";
@@ -885,7 +969,10 @@
     manualStop = false;
     chunks = [];
     if (isRecordingRun){
-      const stream = recCanvas.captureStream(30);
+      const videoStream = recCanvas.captureStream(30);
+      const tracks = [...videoStream.getVideoTracks()];
+      if (audioDest) tracks.push(...audioDest.stream.getAudioTracks());
+      const stream = new MediaStream(tracks);
       const mime = pickMime();
       try{
         mediaRecorder = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 10000000 } : undefined);
