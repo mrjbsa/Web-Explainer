@@ -79,7 +79,7 @@
   const previewBtn = $("previewBtn"), generateBtn = $("generateBtn"), muteBtn = $("muteBtn");
   const overlay = $("overlay"), recCanvas = $("recCanvas"), ctx = recCanvas.getContext("2d");
   const progressFill = $("progressFill"), overlayStatus = $("overlayStatus");
-  const downloadLink = $("downloadLink"), stopBtn = $("stopBtn");
+  const downloadLink = $("downloadLink"), openVideoLink = $("openVideoLink"), stopBtn = $("stopBtn");
 
   // ---------- utils ----------
   function uid(){ return Math.random().toString(36).slice(2) + Date.now().toString(36); }
@@ -717,7 +717,7 @@
   });
 
   // ---------- playback / recording ----------
-  let rafId = null, playStartTime = null, mediaRecorder = null, chunks = [], manualStop = false, isRecordingRun = false;
+  let rafId = null, playStartTime = null, mediaRecorder = null, chunks = [], manualStop = false, isRecordingRun = false, lastBlobUrl = null;
 
   const canExport = ("captureStream" in HTMLCanvasElement.prototype) && (typeof MediaRecorder !== "undefined");
   if (!canExport){
@@ -736,7 +736,15 @@
   }
 
   function pickMime(){
-    const cands = ["video/webm;codecs=vp9","video/webm;codecs=vp8","video/webm"];
+    const cands = [
+      "video/webm;codecs=vp9,opus",
+      "video/webm;codecs=vp9",
+      "video/webm;codecs=vp8,opus",
+      "video/webm;codecs=vp8",
+      "video/webm",
+      "video/mp4;codecs=h264,aac",
+      "video/mp4"
+    ];
     for (const c of cands) if (MediaRecorder.isTypeSupported(c)) return c;
     return "";
   }
@@ -766,6 +774,10 @@
       }
       mediaRecorder.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
       mediaRecorder.onstop = onRecorderStop;
+      mediaRecorder.onerror = (e) => {
+        console.error("Recorder error", e);
+        overlayStatus.textContent = "Recording error — please try Generate again.";
+      };
       mediaRecorder.start();
     }
     playStartTime = null;
@@ -802,15 +814,41 @@
 
   function onRecorderStop(){
     if (manualStop){ manualStop = false; chunks = []; return; }
-    const blob = new Blob(chunks, { type: "video/webm" });
+    const totalBytes = chunks.reduce((s,c) => s + c.size, 0);
+    if (!chunks.length || totalBytes === 0){
+      overlayStatus.textContent = "Recording produced no video data — please try Generate again.";
+      stopBtn.textContent = "Close";
+      return;
+    }
+    const actualType = (mediaRecorder && mediaRecorder.mimeType) ? mediaRecorder.mimeType.split(";")[0] : "video/webm";
+    const ext = actualType.indexOf("mp4") !== -1 ? "mp4" : "webm";
+    if (lastBlobUrl){ URL.revokeObjectURL(lastBlobUrl); lastBlobUrl = null; }
+    const blob = new Blob(chunks, { type: actualType });
     const url = URL.createObjectURL(blob);
+    lastBlobUrl = url;
+
+    // Essential: enable the download button first, unconditionally, so a
+    // failure in anything below can never leave the video unreachable.
     downloadLink.href = url;
-    downloadLink.download = (slug(state.brand.title) || "website") + "-walkthrough.webm";
+    downloadLink.download = (slug(state.brand.title) || "website") + "-walkthrough." + ext;
     downloadLink.hidden = false;
     stopBtn.textContent = "Close";
-    overlayStatus.textContent = "Video ready — " + formatTime(state.grandTotal) + " · 1920×1080";
-    downloadLink.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    overlayStatus.textContent = "Video ready — " + formatTime(state.grandTotal) + " · 1920×1080 · ." + ext;
+
+    try{
+      if (openVideoLink){ openVideoLink.href = url; openVideoLink.hidden = false; }
+    } catch(e){ console.warn("Open-in-new-tab link unavailable:", e); }
+
+    try{ downloadLink.scrollIntoView({ block: "nearest", behavior: "smooth" }); } catch(e){ /* ignore */ }
+
+    // Auto-trigger the save prompt immediately so the person doesn't have
+    // to find/click the button themselves.
+    try{ downloadLink.click(); } catch(e){ console.warn("Auto-download click failed:", e); }
   }
+
+  downloadLink.addEventListener("click", () => {
+    overlayStatus.textContent = "Downloading… check your device's Downloads folder (or Files app on mobile). This file plays in most video players and uploads fine to YouTube, Instagram or WhatsApp.";
+  });
 
   stopBtn.addEventListener("click", () => {
     if (rafId) cancelAnimationFrame(rafId);
