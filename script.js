@@ -163,7 +163,7 @@
   // screenshots are often several thousand pixels tall, and a few of those
   // fully decoded in memory at once is what was crashing the browser during
   // long recordings. Every upload is downscaled to a sane ceiling first.
-  const MAX_IMAGE_DIMENSION = 2600;
+  const MAX_IMAGE_DIMENSION = 2200;
 
   function downscaleImage(dataUrl){
     return new Promise((resolve) => {
@@ -778,11 +778,14 @@
   }
 
   function pickMime(){
+    // VP8 is preferred over VP9: VP9 software encoding uses noticeably more
+    // memory and CPU, which is more likely to crash a constrained device than
+    // the modest file-size gain it offers is worth for this kind of content.
     const cands = [
-      "video/webm;codecs=vp9,opus",
-      "video/webm;codecs=vp9",
       "video/webm;codecs=vp8,opus",
       "video/webm;codecs=vp8",
+      "video/webm;codecs=vp9,opus",
+      "video/webm;codecs=vp9",
       "video/webm",
       "video/mp4;codecs=h264,aac",
       "video/mp4"
@@ -810,7 +813,7 @@
       const stream = new MediaStream(tracks);
       const mime = pickMime();
       try{
-        mediaRecorder = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 6000000 } : undefined);
+        mediaRecorder = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 4000000 } : undefined);
       } catch(e){
         mediaRecorder = new MediaRecorder(stream);
       }
