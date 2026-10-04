@@ -158,20 +158,48 @@
   }
 
   // ---------- file handling ----------
+  // The exported video is 1920x1080 and zooms in at most ~1.3x, so nothing is
+  // gained from keeping a screenshot larger than this — but full-page website
+  // screenshots are often several thousand pixels tall, and a few of those
+  // fully decoded in memory at once is what was crashing the browser during
+  // long recordings. Every upload is downscaled to a sane ceiling first.
+  const MAX_IMAGE_DIMENSION = 2600;
+
+  function downscaleImage(dataUrl){
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const longest = Math.max(img.naturalWidth, img.naturalHeight);
+        if (longest <= MAX_IMAGE_DIMENSION){ resolve({ dataUrl, img }); return; }
+        const scale = MAX_IMAGE_DIMENSION / longest;
+        const w = Math.round(img.naturalWidth * scale), h = Math.round(img.naturalHeight * scale);
+        const off = document.createElement("canvas");
+        off.width = w; off.height = h;
+        off.getContext("2d").drawImage(img, 0, 0, w, h);
+        const resizedUrl = off.toDataURL("image/jpeg", 0.88);
+        const resizedImg = new Image();
+        resizedImg.onload = () => resolve({ dataUrl: resizedUrl, img: resizedImg });
+        resizedImg.onerror = () => resolve({ dataUrl, img });
+        resizedImg.src = resizedUrl;
+      };
+      img.onerror = () => resolve({ dataUrl, img });
+      img.src = dataUrl;
+    });
+  }
+
   function handleFiles(fileList){
     const files = Array.from(fileList).filter(f => f.type.startsWith("image/"));
     if (!files.length) return;
     let remaining = files.length;
     files.forEach((file, idx) => {
       const reader = new FileReader();
-      reader.onload = () => {
-        const img = new Image();
-        img.src = reader.result;
+      reader.onload = async () => {
+        const { dataUrl, img } = await downscaleImage(reader.result);
         const name = "Page " + (state.pages.length + 1);
         const page = {
           id: uid(),
           name: name,
-          src: reader.result,
+          src: dataUrl,
           img,
           pins: autoPinsForPage(name)
         };
@@ -776,13 +804,13 @@
     manualStop = false;
     chunks = [];
     if (isRecordingRun){
-      const videoStream = recCanvas.captureStream(30);
+      const videoStream = recCanvas.captureStream(24);
       const tracks = [...videoStream.getVideoTracks()];
       if (audioDest) tracks.push(...audioDest.stream.getAudioTracks());
       const stream = new MediaStream(tracks);
       const mime = pickMime();
       try{
-        mediaRecorder = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 10000000 } : undefined);
+        mediaRecorder = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 6000000 } : undefined);
       } catch(e){
         mediaRecorder = new MediaRecorder(stream);
       }
@@ -792,7 +820,10 @@
         console.error("Recorder error", e);
         overlayStatus.textContent = "Recording error — please try Generate again.";
       };
-      mediaRecorder.start();
+      // A timeslice makes the browser flush encoded data to us every second
+      // instead of holding the entire recording in its own internal buffer
+      // until stop() — important for longer videos to avoid memory spikes.
+      mediaRecorder.start(1000);
     }
     playStartTime = null;
     rafId = requestAnimationFrame(loop);
