@@ -455,20 +455,34 @@
   }
 
   // ---------- render engine (canvas) ----------
-  function drawStageBackdrop(img){
-    if (!img || !img.complete || !img.naturalWidth){
-      ctx.fillStyle = "#0B0C10"; ctx.fillRect(0,0,CW,CH); return;
-    }
+  // The blurred backdrop is expensive (a large canvas filter pass), so it is
+  // rendered ONCE per page onto an offscreen canvas and cached there. Re-running
+  // ctx.filter = blur(...) on every animation frame (30-60x/sec) is what was
+  // exhausting browser memory and crashing the tab during longer recordings.
+  function getBlurredBackdrop(page){
+    if (page._blurredBg) return page._blurredBg;
+    const img = page.img;
+    if (!img || !img.complete || !img.naturalWidth) return null;
+    const off = document.createElement("canvas");
+    off.width = CW; off.height = CH;
+    const octx = off.getContext("2d");
     const ir = img.naturalWidth/img.naturalHeight, cr = CW/CH;
     let sw, sh, sx, sy;
     if (ir > cr){ sh = img.naturalHeight; sw = sh*cr; sx = (img.naturalWidth-sw)/2; sy = 0; }
     else { sw = img.naturalWidth; sh = sw/cr; sx = 0; sy = (img.naturalHeight-sh)/2; }
-    ctx.save();
-    try{ ctx.filter = "blur(36px) brightness(0.42) saturate(1.15)"; } catch(e){ /* unsupported, ignore */ }
-    ctx.drawImage(img, sx, sy, sw, sh, -60, -60, CW+120, CH+120);
-    ctx.restore();
-    ctx.fillStyle = "rgba(6,7,10,0.25)";
-    ctx.fillRect(0,0,CW,CH);
+    try{ octx.filter = "blur(36px) brightness(0.42) saturate(1.15)"; } catch(e){ /* unsupported, ignore */ }
+    octx.drawImage(img, sx, sy, sw, sh, -60, -60, CW+120, CH+120);
+    octx.filter = "none";
+    octx.fillStyle = "rgba(6,7,10,0.25)";
+    octx.fillRect(0,0,CW,CH);
+    page._blurredBg = off;
+    return off;
+  }
+
+  function drawStageBackdrop(page){
+    const cached = getBlurredBackdrop(page);
+    if (cached){ ctx.drawImage(cached, 0, 0); }
+    else { ctx.fillStyle = "#0B0C10"; ctx.fillRect(0,0,CW,CH); }
   }
 
   // Draws the FULL, uncropped screenshot fitted (letterboxed) into the frame,
@@ -618,7 +632,7 @@
 
     ctx.save();
     ctx.globalAlpha = clamp(alpha,0,1);
-    drawStageBackdrop(page.img);
+    drawStageBackdrop(page);
     drawContainImageZoomed(page.img, fx, fy, zoom);
     drawTopBar(page);
     ctx.restore();
